@@ -8,22 +8,22 @@ API_ID = "25140031"
 API_HASH = "a9308e99598c9eee9889a1badf2ddd2f"
 SESSION_NAME = "forward_bot_session"
 
-# التأكد من وجود Event Loop مناسب
-def get_event_loop():
-    try:
-        return asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop
+# التأكد من وجود Event 
 
-loop = get_event_loop()
-client = TelegramClient(SESSION_NAME, API_ID, API_HASH, loop=loop)
+# إنشاء جلسة Telethon
+client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+
+async def start_client():
+    """ تشغيل العميل في الخلفية وضمان اتصاله """
+    if not client.is_connected():
+        await client.connect()
+    if not await client.is_user_authorized():
+        st.warning("يجب تسجيل الدخول أولاً.")
 
 def login(phone_number):
     """ تسجيل الدخول باستخدام رقم الهاتف """
     async def auth():
-        await client.connect()
+        await start_client()
         if not await client.is_user_authorized():
             await client.send_code_request(phone_number)
             return True
@@ -33,8 +33,9 @@ def login(phone_number):
 def verify_code(phone_number, code):
     """ التحقق من كود OTP """
     async def auth():
+        await start_client()
         await client.sign_in(phone_number, code)
-    asyncio.run(auth())
+    asyncio.create_task(auth())
 
 # واجهة Streamlit
 st.title("بوت تحويل الرسائل بين القنوات")
@@ -57,6 +58,7 @@ if client.is_connected():
     
     if st.button("ابدأ التحويل"):
         async def forward_messages():
+            await start_client()
             @client.on(events.NewMessage(chats=source_channel))
             async def handler(event):
                 await client.send_message(target_channel, event.message)
@@ -64,6 +66,6 @@ if client.is_connected():
             await client.run_until_disconnected()
         
         st.success("بدأ تحويل الرسائل!")
-        loop.run_until_complete(forward_messages())
+        asyncio.create_task(forward_messages())
 
 # تشغيل Streamlit عبر: streamlit run script.py
