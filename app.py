@@ -1,74 +1,95 @@
-
 import streamlit as st
-from telethon import TelegramClient, events
-import asyncio
+import sqlite3
+from hashlib import sha256
 
-# إعداد بيانات API الخاصة بـ Telegram
-API_ID = "25140031"
-API_HASH = "a9308e99598c9eee9889a1badf2ddd2f"
-SESSION_NAME = "forward_bot_session"
+# الاتصال بقاعدة البيانات
+def get_db_connection():
+    conn = sqlite3.connect('social_media.db')
+    return conn
 
+# وظيفة لتسجيل مستخدم جديد
+def register_user(username, password):
+    conn = get_db_connection()
+    c = conn.cursor()
+    hashed_password = sha256(password.encode()).hexdigest()
+    try:
+        c.execute('INSERT INTO users (username, password) VALUES (?, ?)', (username, hashed_password))
+        conn.commit()
+        st.success("تم تسجيل الحساب بنجاح!")
+    except sqlite3.IntegrityError:
+        st.error("اسم المستخدم موجود بالفعل.")
+    conn.close()
 
-# إنشاء Event Loop جديد وحفظه
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
+# وظيفة لتسجيل الدخول
+def login_user(username, password):
+    conn = get_db_connection()
+    c = conn.cursor()
+    hashed_password = sha256(password.encode()).hexdigest()
+    c.execute('SELECT * FROM users WHERE username = ? AND password = ?', (username, hashed_password))
+    user = c.fetchone()
+    conn.close()
+    return user
 
-# إنشاء جلسة Telethon
-client = TelegramClient(SESSION_NAME, API_ID, API_HASH, loop=loop)
+# وظيفة لإنشاء تغريدة
+def post_tweet(user_id, content):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('INSERT INTO tweets (user_id, content) VALUES (?, ?)', (user_id, content))
+    conn.commit()
+    conn.close()
 
-async def start_client():
-    """ تشغيل العميل في الخلفية وضمان اتصاله """
-    if not client.is_connected():
-        await client.connect()
-    if not await client.is_user_authorized():
-        st.warning("يجب تسجيل الدخول أولاً.")
+# وظيفة لإعجاب بتغريدة
+def like_tweet(user_id, tweet_id):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('INSERT OR IGNORE INTO likes (tweet_id, user_id) VALUES (?, ?)', (tweet_id, user_id))
+    conn.commit()
+    conn.close()
 
-def login(phone_number):
-    """ تسجيل الدخول باستخدام رقم الهاتف """
-    async def auth():
-        await start_client()
-        if not await client.is_user_authorized():
-            await client.send_code_request(phone_number)
-            return True
-        return False
-    return asyncio.run_coroutine_threadsafe(auth(), loop).result()
+# واجهة تسجيل الدخول أو التسجيل
+st.title('تطبيق تواصل اجتماعي')
 
-def verify_code(phone_number, code):
-    """ التحقق من كود OTP """
-    async def auth():
-        await start_client()
-        await client.sign_in(phone_number, code)
-    asyncio.run_coroutine_threadsafe(auth(), loop)
+menu = ['تسجيل الدخول', 'تسجيل حساب']
+choice = st.sidebar.selectbox("اختر العملية", menu)
 
-# واجهة Streamlit
-st.title("بوت تحويل الرسائل بين القنوات")
+if choice == 'تسجيل حساب':
+    st.subheader("إنشاء حساب")
+    username = st.text_input('اسم المستخدم')
+    password = st.text_input('كلمة المرور', type='password')
 
-phone_number = st.text_input("أدخل رقم هاتفك مع الكود الدولي")
-if st.button("تسجيل الدخول"):
-    if login(phone_number):
-        st.session_state["phone"] = phone_number
-        st.success("تم إرسال كود التحقق، أدخله في الأسفل")
+    if st.button("تسجيل"):
+        if username and password:
+            register_user(username, password)
+        else:
+            st.error("الرجاء إدخال جميع البيانات.")
 
-code = st.text_input("أدخل كود التحقق")
-if st.button("تحقق"):
-    verify_code(st.session_state["phone"], code)
-    st.success("تم تسجيل الدخول بنجاح")
+elif choice == 'تسجيل الدخول':
+    st.subheader("تسجيل الدخول")
+    username = st.text_input('اسم المستخدم')
+    password = st.text_input('كلمة المرور', type='password')
 
-# اختيار القنوات
-if client.is_connected():
-    source_channel = st.text_input("أدخل معرف القناة المصدر (مثل @source_channel)")
-    target_channel = st.text_input("أدخل معرف القناة الهدف (مثل @target_channel)")
-    
-    if st.button("ابدأ التحويل"):
-        async def forward_messages():
-            await start_client()
-            @client.on(events.NewMessage(chats=source_channel))
-            async def handler(event):
-                await client.send_message(target_channel, event.message)
-                
-            await client.run_until_disconnected()
-        
-        st.success("بدأ تحويل الرسائل!")
-        asyncio.run_coroutine_threadsafe(forward_messages(), loop)
+    if st.button("تسجيل الدخول"):
+        user = login_user(username, password)
+        if user:
+            st.success(f"مرحبًا {username}!")
+            user_id = user[0]  # Assuming user ID is the first column
+            content = st.text_area("أكتب تغريدتك هنا:")
+            if st.button("نشر"):
+                if content:
+                    post_tweet(user_id, content)
+                    st.success("تم نشر التغريدة!")
 
-# تشغيل Streamlit عبر: streamlit run script.py
+            # عرض التغريدات
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute('SELECT * FROM tweets ORDER BY id DESC')
+            tweets = c.fetchall()
+            conn.close()
+
+            st.subheader("التغريدات:")
+            for tweet in tweets:
+                tweet_id, user_id, content = tweet
+                st.write(f"تغريدة: {content}")
+                st.button("إعجاب", key=tweet_id, on_click=like_tweet, args=(user_id, tweet_id))
+        else:
+            st.error("اسم المستخدم أو كلمة المرور غير صحيحة.")
