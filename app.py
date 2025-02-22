@@ -9,7 +9,7 @@ API_HASH = "a9308e99598c9eee9889a1badf2ddd2f"
 SESSION_NAME = "forward_bot_session"
 
 
-# حل مشكلة event loop
+# إنشاء Event Loop جديد وحفظه
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
@@ -72,4 +72,3 @@ if client.is_connected():
         asyncio.run_coroutine_threadsafe(forward_messages(), loop)
 
 # تشغيل Streamlit عبر: streamlit run script.py
-# الت
