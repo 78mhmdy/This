@@ -1,3 +1,4 @@
+
 import streamlit as st
 from telethon import TelegramClient, events
 import asyncio
@@ -7,8 +8,17 @@ API_ID = "25140031"
 API_HASH = "a9308e99598c9eee9889a1badf2ddd2f"
 SESSION_NAME = "forward_bot_session"
 
-# إنشاء جلسة Telethon
-client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+# التأكد من وجود Event Loop مناسب
+def get_event_loop():
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
+
+loop = get_event_loop()
+client = TelegramClient(SESSION_NAME, API_ID, API_HASH, loop=loop)
 
 def login(phone_number):
     """ تسجيل الدخول باستخدام رقم الهاتف """
@@ -54,6 +64,6 @@ if client.is_connected():
             await client.run_until_disconnected()
         
         st.success("بدأ تحويل الرسائل!")
-        asyncio.run(forward_messages())
+        loop.run_until_complete(forward_messages())
 
 # تشغيل Streamlit عبر: streamlit run script.py
