@@ -1,94 +1,59 @@
 import streamlit as st
-from telethon.sync import TelegramClient
-import sqlite3
-import os
+from telethon import TelegramClient, events
+import asyncio
 
-# إعداد قاعدة البيانات
-def init_db():
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users 
-                 (phone TEXT PRIMARY KEY, session TEXT)''')
-    conn.commit()
-    conn.close()
+# إعداد بيانات API الخاصة بـ Telegram
+API_ID = "25140031"
+API_HASH = "a9308e99598c9eee9889a1badf2ddd2f"
+SESSION_NAME = "forward_bot_session"
 
-# إعداد Telegram Client
-api_id = '25140031'  # استبدلها بـ API ID الخاص بك
-api_hash = 'a9308e99598c9eee9889a1badf2ddd2f'  # استبدلها بـ API Hash الخاص بك
+# إنشاء جلسة Telethon
+client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 
-# صفحة تسجيل الدخول
-def login_page():
-    st.title("تسجيل الدخول إلى البوت")
-    phone = st.text_input("أدخل رقم هاتفك (مثال: +1234567890)")
-    
-    if st.button("تسجيل الدخول"):
-        if phone:
-            client = TelegramClient(phone, api_id, api_hash)
-            client.connect()
-            if not client.is_user_authorized():
-                st.write("تم إرسال رمز التحقق إلى رقمك، أدخله أدناه")
-                code = st.text_input("أدخل رمز التحقق")
-                if st.button("تحقق"):
-                    try:
-                        client.sign_in(phone, code)
-                        st.success("تم تسجيل الدخول بنجاح!")
-                        # حفظ الجلسة في قاعدة البيانات
-                        conn = sqlite3.connect('users.db')
-                        c = conn.cursor()
-                        c.execute("INSERT OR REPLACE INTO users (phone, session) VALUES (?, ?)", 
-                                  (phone, phone + '.session'))
-                        conn.commit()
-                        conn.close()
-                        st.session_state['logged_in'] = True
-                        st.session_state['phone'] = phone
-                    except Exception as e:
-                        st.error(f"حدث خطأ: {e}")
-            else:
-                st.session_state['logged_in'] = True
-                st.session_state['phone'] = phone
-                st.success("تم تسجيل الدخول بنجاح!")
-            client.disconnect()
-        else:
-            st.error("يرجى إدخال رقم هاتف")
+def login(phone_number):
+    """ تسجيل الدخول باستخدام رقم الهاتف """
+    async def auth():
+        await client.connect()
+        if not await client.is_user_authorized():
+            await client.send_code_request(phone_number)
+            return True
+        return False
+    return asyncio.run(auth())
 
-# صفحة تحديد القنوات وتحويل الرسائل
-def main_page():
-    st.title("بوت تحويل الرسائل")
-    phone = st.session_state['phone']
+def verify_code(phone_number, code):
+    """ التحقق من كود OTP """
+    async def auth():
+        await client.sign_in(phone_number, code)
+    asyncio.run(auth())
+
+# واجهة Streamlit
+st.title("بوت تحويل الرسائل بين القنوات")
+
+phone_number = st.text_input("أدخل رقم هاتفك مع الكود الدولي")
+if st.button("تسجيل الدخول"):
+    if login(phone_number):
+        st.session_state["phone"] = phone_number
+        st.success("تم إرسال كود التحقق، أدخله في الأسفل")
+
+code = st.text_input("أدخل كود التحقق")
+if st.button("تحقق"):
+    verify_code(st.session_state["phone"], code)
+    st.success("تم تسجيل الدخول بنجاح")
+
+# اختيار القنوات
+if client.is_connected():
+    source_channel = st.text_input("أدخل معرف القناة المصدر (مثل @source_channel)")
+    target_channel = st.text_input("أدخل معرف القناة الهدف (مثل @target_channel)")
     
-    client = TelegramClient(phone, api_id, api_hash)
-    client.connect()
-    
-    # الحصول على قائمة القنوات
-    channels = []
-    for dialog in client.get_dialogs():
-        if dialog.is_channel:
-            channels.append((dialog.title, dialog.id))
-    
-    source_channel = st.selectbox("اختر القناة المصدر", [ch[0] for ch in channels])
-    target_channel = st.selectbox("اختر القناة الهدف", [ch[0] for ch in channels])
-    
-    if st.button("بدء التحويل"):
-        source_id = next(ch[1] for ch in channels if ch[0] == source_channel)
-        target_id = next(ch[1] for ch in channels if ch[0] == target_channel)
+    if st.button("ابدأ التحويل"):
+        async def forward_messages():
+            @client.on(events.NewMessage(chats=source_channel))
+            async def handler(event):
+                await client.send_message(target_channel, event.message)
+                
+            await client.run_until_disconnected()
         
-        st.write("جاري تحويل الرسائل...")
-        for message in client.iter_messages(source_id, limit=10):  # حد 10 رسائل كمثال
-            client.send_message(target_id, message.text if message.text else "رسالة بدون نص")
-        st.success("تم تحويل الرسائل بنجاح!")
-    
-    client.disconnect()
+        st.success("بدأ تحويل الرسائل!")
+        asyncio.run(forward_messages())
 
-# التحكم في الصفحات
-def main():
-    init_db()
-    if 'logged_in' not in st.session_state:
-        st.session_state['logged_in'] = False
-    
-    if not st.session_state['logged_in']:
-        login_page()
-    else:
-        main_page()
-
-if __name__ == "__main__":
-    main()
+# تشغيل Streamlit عبر: streamlit run script.py
