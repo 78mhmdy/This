@@ -8,10 +8,13 @@ API_ID = "25140031"
 API_HASH = "a9308e99598c9eee9889a1badf2ddd2f"
 SESSION_NAME = "forward_bot_session"
 
-# التأكد من وجود Event 
+
+# حل مشكلة event loop
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 
 # إنشاء جلسة Telethon
-client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+client = TelegramClient(SESSION_NAME, API_ID, API_HASH, loop=loop)
 
 async def start_client():
     """ تشغيل العميل في الخلفية وضمان اتصاله """
@@ -28,14 +31,14 @@ def login(phone_number):
             await client.send_code_request(phone_number)
             return True
         return False
-    return asyncio.run(auth())
+    return asyncio.run_coroutine_threadsafe(auth(), loop).result()
 
 def verify_code(phone_number, code):
     """ التحقق من كود OTP """
     async def auth():
         await start_client()
         await client.sign_in(phone_number, code)
-    asyncio.create_task(auth())
+    asyncio.run_coroutine_threadsafe(auth(), loop)
 
 # واجهة Streamlit
 st.title("بوت تحويل الرسائل بين القنوات")
@@ -66,6 +69,7 @@ if client.is_connected():
             await client.run_until_disconnected()
         
         st.success("بدأ تحويل الرسائل!")
-        asyncio.create_task(forward_messages())
+        asyncio.run_coroutine_threadsafe(forward_messages(), loop)
 
 # تشغيل Streamlit عبر: streamlit run script.py
+# الت
