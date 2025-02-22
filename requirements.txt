@@ -1,1 +1,2 @@
-telethon
+pandas
+sqlite3
